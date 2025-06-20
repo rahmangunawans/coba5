@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniFlix Torrent Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        
+        .status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 400px;
+            z-index: 1000;
+        }
+        
+        .watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        .error { color: #ff6b6b; }
+        .success { color: #4caf50; }
+        .warning { color: #ffc107; }
+        
+        .btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background: #ff5252;
+        }
+        
+        .progress {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="watermark">AniFlix</div>
+        
+        <div class="status" id="status">
+            <div id="status-text">Initializing...</div>
+            <div id="progress" class="progress"></div>
+        </div>
+        
+        <video id="video" controls style="display: none;"></video>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status-text');
+        const progress = document.getElementById('progress');
+        const statusDiv = document.getElementById('status');
+        
+        // Get magnet URI from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const magnetURI = urlParams.get('url');
+        const title = urlParams.get('title') || 'Unknown';
+        
+        if (!magnetURI) {
+            statusText.innerHTML = '<div class="error">No magnet link provided</div>';
+        } else if (!magnetURI.startsWith('magnet:')) {
+            statusText.innerHTML = '<div class="error">Invalid magnet link format</div>';
+        } else {
+            startTorrentStream();
+        }
+        
+        function startTorrentStream() {
+            statusText.innerHTML = '<div>Creating WebTorrent client...</div>';
+            
+            // Check if WebTorrent is available
+            if (typeof WebTorrent === 'undefined') {
+                statusText.innerHTML = '<div class="error">WebTorrent library not loaded</div>';
+                return;
+            }
+            
+            try {
+                // Create minimal WebTorrent client
+                const client = new WebTorrent();
+                
+                statusText.innerHTML = '<div>Connecting to torrent network...</div>';
+                progress.innerHTML = 'Please wait, this may take 30-60 seconds...';
+                
+                // Set connection timeout
+                const timeout = setTimeout(() => {
+                    statusText.innerHTML = `
+                        <div class="error">Connection timeout</div>
+                        <div>Unable to connect to torrent network. This could be due to:</div>
+                        <ul style="font-size: 12px; margin: 10px 0;">
+                            <li>No available seeders for this torrent</li>
+                            <li>Network firewall blocking WebRTC connections</li>
+                            <li>ISP blocking torrent traffic</li>
+                            <li>The torrent may be dead/inactive</li>
+                        </ul>
+                        <button class="btn" onclick="tryDemo()">Watch Demo Video Instead</button>
+                        <button class="btn" onclick="window.history.back()">Go Back</button>
+                    `;
+                }, 30000);
+                
+                // Add torrent
+                client.add(magnetURI, function (torrent) {
+                    clearTimeout(timeout);
+                    
+                    console.log('Torrent loaded:', torrent.name);
+                    statusText.innerHTML = `<div class="success">Torrent loaded: ${torrent.name}</div>`;
+                    progress.innerHTML = `Files: ${torrent.files.length} | Size: ${(torrent.length / 1024 / 1024).toFixed(2)} MB`;
+                    
+                    // Find video file
+                    let videoFile = null;
+                    const videoExtensions = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.flv'];
+                    
+                    for (const file of torrent.files) {
+                        const ext = file.name.toLowerCase().substr(-4);
+                        if (videoExtensions.includes(ext)) {
+                            videoFile = file;
+                            break;
+                        }
+                    }
+                    
+                    // If no video file found, use largest file
+                    if (!videoFile) {
+                        videoFile = torrent.files.reduce((a, b) => a.length > b.length ? a : b);
+                    }
+                    
+                    if (videoFile) {
+                        statusText.innerHTML = `<div class="success">Playing: ${videoFile.name}</div>`;
+                        progress.innerHTML = `File size: ${(videoFile.length / 1024 / 1024).toFixed(2)} MB`;
+                        
+                        // Start streaming
+                        try {
+                            videoFile.appendTo(video);
+                            video.style.display = 'block';
+                            
+                            // Hide status after video starts
+                            video.addEventListener('loadstart', () => {
+                                statusDiv.style.display = 'none';
+                            });
+                            
+                            video.addEventListener('canplay', () => {
+                                video.playbackRate = 3.0;
+                                video.play().catch(e => console.log('Autoplay prevented'));
+                            });
+                            
+                            video.addEventListener('error', (e) => {
+                                console.error('Video error:', e);
+                                statusDiv.style.display = 'block';
+                                statusText.innerHTML = '<div class="error">Video playback error</div>';
+                            });
+                            
+                            // Show download progress
+                            torrent.on('download', () => {
+                                const downloadProgress = Math.round(torrent.progress * 100);
+                                const speed = (torrent.downloadSpeed / 1024 / 1024).toFixed(2);
+                                progress.innerHTML = `Download: ${downloadProgress}% | Speed: ${speed} MB/s | Peers: ${torrent.numPeers}`;
+                            });
+                            
+                        } catch (streamError) {
+                            console.error('Streaming error:', streamError);
+                            statusText.innerHTML = '<div class="error">Failed to start video stream</div>';
+                        }
+                    } else {
+                        statusText.innerHTML = '<div class="error">No video files found in torrent</div>';
+                    }
+                });
+                
+                // Handle client errors
+                client.on('error', (err) => {
+                    clearTimeout(timeout);
+                    console.error('WebTorrent error:', err);
+                    statusText.innerHTML = `
+                        <div class="error">WebTorrent Error: ${err.message}</div>
+                        <button class="btn" onclick="tryDemo()">Try Demo Video</button>
+                    `;
+                });
+                
+            } catch (error) {
+                console.error('Client creation failed:', error);
+                statusText.innerHTML = `
+                    <div class="error">Failed to create torrent client</div>
+                    <div>${error.message}</div>
+                    <button class="btn" onclick="tryDemo()">Try Demo Video</button>
+                `;
+            }
+        }
+        
+        function tryDemo() {
+            statusDiv.style.display = 'none';
+            video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+            video.style.display = 'block';
+            video.playbackRate = 3.0;
+            video.play();
+        }
+    </script>
+</body>
+</html>

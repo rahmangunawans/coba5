@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block title %}{{ anime.title }} - AniFlix{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-black text-white">
+    <!-- Main Content Container -->
+    <div class="relative">
+        <!-- Hero Section with Video Player -->
+        <div class="relative h-screen flex flex-col">
+            <!-- Video Player Area -->
+            <div class="flex-1 relative bg-gray-900">
+                <div id="videoContainer" class="w-full h-full flex items-center justify-center">
+                    <!-- Initial State - Show Anime Info -->
+                    <div id="animeInfo" class="text-center p-8 max-w-4xl mx-auto">
+                        <div class="flex flex-col md:flex-row items-center gap-8 mb-8">
+                            {% if anime.poster_url %}
+                            <img src="{{ anime.poster_url }}" alt="{{ anime.title }}" 
+                                 class="w-48 h-72 object-cover rounded-lg shadow-2xl">
+                            {% endif %}
+                            
+                            <div class="flex-1 text-left">
+                                <h1 class="text-4xl md:text-6xl font-bold mb-4">{{ anime.title }}</h1>
+                                <div class="flex items-center gap-4 mb-4 text-gray-300">
+                                    <span class="bg-red-600 px-3 py-1 rounded text-sm font-semibold">ANIME</span>
+                                    {% if anime.year %}<span>{{ anime.year }}</span>{% endif %}
+                                    {% if anime.rating %}
+                                    <div class="flex items-center">
+                                        <i class="fas fa-star text-yellow-400 mr-1"></i>
+                                        <span>{{ anime.rating }}/10</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                
+                                {% if anime.description %}
+                                <p class="text-gray-300 text-lg leading-relaxed mb-6">{{ anime.description }}</p>
+                                {% endif %}
+                                
+                                {% if anime.genre %}
+                                <div class="mb-6">
+                                    <span class="text-gray-400 text-sm">Genres: </span>
+                                    {% for genre in anime.genre.split(',') %}
+                                    <span class="inline-block bg-gray-700 px-3 py-1 rounded-full text-sm mr-2 mb-2">{{ genre.strip() }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                
+                                <!-- Trailer Button -->
+                                {% if anime.trailer_url %}
+                                <button onclick="playTrailer('{{ anime.trailer_url }}', '{{ anime.title }} - Trailer')" 
+                                        class="bg-white text-black px-8 py-3 rounded-lg font-bold hover:bg-gray-200 transition-colors mr-4">
+                                    <i class="fas fa-play mr-2"></i>Watch Trailer
+                                </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Video Player (Hidden Initially) -->
+                    <div id="videoPlayer" class="w-full h-full hidden">
+                        <iframe id="videoIframe" 
+                                class="w-full h-full border-0" 
+                                allowfullscreen 
+                                allow="autoplay; encrypted-media">
+                        </iframe>
+                    </div>
+                </div>
+                
+                <!-- Video Controls Overlay -->
+                <div id="videoControls" class="absolute inset-0 bg-black bg-opacity-0 transition-all duration-300 hidden">
+                    <div class="absolute top-4 right-4 z-10">
+                        <button onclick="closeVideo()" 
+                                class="bg-black bg-opacity-70 text-white p-3 rounded-full hover:bg-opacity-90 transition-all">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="absolute bottom-4 left-4 right-4 z-10">
+                        <div class="bg-black bg-opacity-70 p-4 rounded-lg">
+                            <h3 id="currentTitle" class="text-white font-semibold text-lg"></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Episodes Section -->
+        <div class="relative z-10 bg-black px-4 md:px-8 py-8">
+            <div class="max-w-7xl mx-auto">
+                {% if anime.seasons %}
+                {% for season in anime.seasons %}
+                <div class="mb-8">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl md:text-3xl font-bold">
+                            Season {{ season.season_number }}
+                            {% if season.title %}- {{ season.title }}{% endif %}
+                        </h2>
+                        <span class="text-gray-400">{{ season.episodes|length }} Episodes</span>
+                    </div>
+                    
+                    {% if season.episodes %}
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {% for episode in season.episodes %}
+                        <div class="bg-gray-900 rounded-lg overflow-hidden hover:bg-gray-800 transition-colors group cursor-pointer"
+                             onclick="playEpisode('{{ episode.stream_url or \"https://filemoon.to/e/22rm0crpaqd2/\" }}', '{{ anime.title }} - S{{ season.season_number }}E{{ episode.episode_number }}: {{ episode.title or \"Episode \" + episode.episode_number|string }}')">
+                            
+                            <div class="relative aspect-video bg-gray-800">
+                                {% if episode.thumbnail_url %}
+                                <img src="{{ episode.thumbnail_url }}" alt="{{ episode.title }}" 
+                                     class="w-full h-full object-cover">
+                                {% else %}
+                                <div class="w-full h-full flex items-center justify-center">
+                                    <i class="fas fa-play-circle text-4xl text-gray-500 group-hover:text-red-500 transition-colors"></i>
+                                </div>
+                                {% endif %}
+                                
+                                <!-- Play Overlay -->
+                                <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 flex items-center justify-center transition-all">
+                                    <i class="fas fa-play text-white text-3xl opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                </div>
+                                
+                                <!-- Episode Number Badge -->
+                                <div class="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-sm font-bold">
+                                    E{{ episode.episode_number }}
+                                </div>
+                                
+                                {% if episode.duration_minutes %}
+                                <div class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-xs">
+                                    {{ episode.duration_minutes }}m
+                                </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="p-4">
+                                <h3 class="font-semibold text-lg mb-2 line-clamp-2">
+                                    {{ episode.title or "Episode " + episode.episode_number|string }}
+                                </h3>
+                                {% if episode.description %}
+                                <p class="text-gray-400 text-sm line-clamp-3">{{ episode.description }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+                
+                <!-- Recommendations Section -->
+                <div class="mt-12">
+                    <h2 class="text-2xl md:text-3xl font-bold mb-6">
+                        <i class="fas fa-star text-yellow-400 mr-2"></i>More Like This
+                    </h2>
+                    
+                    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {% for recommended in recommended_anime %}
+                        <a href="{{ url_for('watch_anime', anime_id=recommended.id) }}" 
+                           class="group block">
+                            <div class="relative aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden">
+                                {% if recommended.poster_url %}
+                                <img src="{{ recommended.poster_url }}" 
+                                     alt="{{ recommended.title }}" 
+                                     class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                                {% else %}
+                                <div class="w-full h-full flex items-center justify-center">
+                                    <i class="fas fa-play-circle text-4xl text-gray-500"></i>
+                                </div>
+                                {% endif %}
+                                
+                                <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-300 flex items-center justify-center">
+                                    <i class="fas fa-play text-white text-2xl opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                </div>
+                                
+                                {% if recommended.rating %}
+                                <div class="absolute top-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+                                    <i class="fas fa-star text-yellow-400 mr-1"></i>{{ recommended.rating }}
+                                </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="mt-2">
+                                <h3 class="font-medium text-sm line-clamp-2">{{ recommended.title }}</h3>
+                                <p class="text-gray-400 text-xs">{{ recommended.year }}</p>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .aspect-video {
+        aspect-ratio: 16/9;
+    }
+    
+    .aspect-[3/4] {
+        aspect-ratio: 3/4;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+</style>
+
+<script>
+let currentlyPlaying = false;
+
+function playTrailer(trailerUrl, title) {
+    if (!trailerUrl) {
+        alert('Trailer not available');
+        return;
+    }
+    
+    showVideo(trailerUrl, title);
+}
+
+function playEpisode(streamUrl, title) {
+    if (!streamUrl) {
+        alert('Stream not available');
+        return;
+    }
+    
+    showVideo(streamUrl, title);
+}
+
+function showVideo(url, title) {
+    const animeInfo = document.getElementById('animeInfo');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const videoControls = document.getElementById('videoControls');
+    const videoIframe = document.getElementById('videoIframe');
+    const currentTitle = document.getElementById('currentTitle');
+    
+    // Hide anime info and show video player
+    animeInfo.classList.add('hidden');
+    videoPlayer.classList.remove('hidden');
+    videoControls.classList.remove('hidden');
+    
+    // Set video source and title
+    videoIframe.src = url;
+    currentTitle.textContent = title;
+    
+    currentlyPlaying = true;
+    
+    // Hide navigation temporarily
+    document.body.style.overflow = 'hidden';
+    
+    // Auto-hide controls after 3 seconds
+    setTimeout(() => {
+        if (currentlyPlaying) {
+            videoControls.style.opacity = '0';
+        }
+    }, 3000);
+    
+    // Show controls on mouse move
+    videoPlayer.addEventListener('mousemove', showControls);
+    videoPlayer.addEventListener('touchstart', showControls);
+}
+
+function showControls() {
+    const videoControls = document.getElementById('videoControls');
+    videoControls.style.opacity = '1';
+    
+    // Auto-hide again after 3 seconds
+    setTimeout(() => {
+        if (currentlyPlaying) {
+            videoControls.style.opacity = '0';
+        }
+    }, 3000);
+}
+
+function closeVideo() {
+    const animeInfo = document.getElementById('animeInfo');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const videoControls = document.getElementById('videoControls');
+    const videoIframe = document.getElementById('videoIframe');
+    
+    // Stop video and reset
+    videoIframe.src = '';
+    
+    // Show anime info and hide video player
+    videoPlayer.classList.add('hidden');
+    videoControls.classList.add('hidden');
+    animeInfo.classList.remove('hidden');
+    
+    currentlyPlaying = false;
+    
+    // Restore page scroll
+    document.body.style.overflow = 'auto';
+}
+
+// Handle escape key to close video
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && currentlyPlaying) {
+        closeVideo();
+    }
+});
+
+// Handle fullscreen changes
+document.addEventListener('fullscreenchange', function() {
+    if (!document.fullscreenElement && currentlyPlaying) {
+        showControls();
+    }
+});
+
+// Touch gestures for mobile
+let touchStartY = 0;
+document.addEventListener('touchstart', function(e) {
+    touchStartY = e.touches[0].clientY;
+});
+
+document.addEventListener('touchend', function(e) {
+    const touchEndY = e.changedTouches[0].clientY;
+    const diff = touchStartY - touchEndY;
+    
+    // Swipe down to close video (only if significant swipe)
+    if (diff < -100 && currentlyPlaying) {
+        closeVideo();
+    }
+});
+</script>
+{% endblock %}

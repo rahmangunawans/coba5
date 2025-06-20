@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniFlix Streaming Player</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        
+        .status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 400px;
+            z-index: 1000;
+        }
+        
+        .watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #ff6b6b;
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .error { color: #ff6b6b; }
+        .success { color: #4caf50; }
+        .warning { color: #ffc107; }
+        
+        .btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background: #ff5252;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .control-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .stats {
+            font-size: 12px;
+            color: #ccc;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="watermark">AniFlix</div>
+        
+        <div class="status" id="status">
+            <div id="status-text">Initializing torrent stream...</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="stats" id="stats"></div>
+        </div>
+        
+        <video id="video" controls style="display: none;"></video>
+        
+        <div class="controls" id="controls">
+            <div class="control-buttons">
+                <button class="btn" id="play-btn">Play</button>
+                <button class="btn" id="pause-btn">Pause</button>
+                <select class="btn" id="speed-select">
+                    <option value="0.5">0.5x</option>
+                    <option value="1">1x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                    <option value="3" selected>3x</option>
+                </select>
+                <button class="btn" id="fullscreen-btn">Fullscreen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status-text');
+        const statusDiv = document.getElementById('status');
+        const progressFill = document.getElementById('progress-fill');
+        const stats = document.getElementById('stats');
+        const controls = document.getElementById('controls');
+        
+        // Get magnet URI from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const magnetURI = urlParams.get('url');
+        const title = urlParams.get('title') || 'Unknown';
+        
+        let progressInterval;
+        let streamStarted = false;
+        
+        if (!magnetURI) {
+            statusText.innerHTML = '<div class="error">No magnet link provided</div>';
+        } else {
+            startRealStreaming();
+        }
+        
+        async function startRealStreaming() {
+            try {
+                statusText.innerHTML = 'Processing magnet link...';
+                
+                // Start torrent download
+                const startResponse = await fetch(`/start_torrent_download?magnet=${encodeURIComponent(magnetURI)}`);
+                const startData = await startResponse.json();
+                
+                if (startData.status === 'success') {
+                    const infoHash = startData.info_hash;
+                    statusText.innerHTML = '<div class="success">Download started</div>';
+                    
+                    // Start monitoring progress
+                    monitorDownloadProgress(infoHash);
+                    
+                    // Wait a bit then start streaming
+                    setTimeout(() => {
+                        attemptStreaming(infoHash);
+                    }, 3000);
+                    
+                } else {
+                    statusText.innerHTML = `<div class="error">Failed to start: ${startData.error}</div>`;
+                }
+                
+            } catch (error) {
+                statusText.innerHTML = `<div class="error">Connection error: ${error.message}</div>`;
+            }
+        }
+        
+        function monitorDownloadProgress(infoHash) {
+            progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/torrent_progress/${infoHash}`);
+                    const progress = await response.json();
+                    
+                    if (progress.error) {
+                        clearInterval(progressInterval);
+                        return;
+                    }
+                    
+                    // Update progress bar
+                    progressFill.style.width = progress.progress + '%';
+                    
+                    // Update stats
+                    const mbDownloaded = (progress.downloaded_bytes / 1024 / 1024).toFixed(2);
+                    const mbTotal = (progress.total_bytes / 1024 / 1024).toFixed(2);
+                    
+                    stats.innerHTML = `
+                        Status: ${progress.status}<br>
+                        Progress: ${progress.progress.toFixed(1)}%<br>
+                        Downloaded: ${mbDownloaded} MB / ${mbTotal} MB<br>
+                        File: ${progress.file_name}
+                    `;
+                    
+                    // Update status text based on progress
+                    if (progress.status === 'downloading') {
+                        statusText.innerHTML = '<div class="success">Downloading content...</div>';
+                        
+                        // Start streaming when we have enough data
+                        if (progress.progress > 5 && !streamStarted) {
+                            attemptStreaming(infoHash);
+                        }
+                    } else if (progress.status === 'completed') {
+                        statusText.innerHTML = '<div class="success">Download completed</div>';
+                        clearInterval(progressInterval);
+                    } else if (progress.status === 'error') {
+                        statusText.innerHTML = '<div class="error">Download failed</div>';
+                        clearInterval(progressInterval);
+                    }
+                    
+                } catch (error) {
+                    console.error('Progress check error:', error);
+                }
+            }, 1000);
+        }
+        
+        function attemptStreaming(infoHash) {
+            if (streamStarted) return;
+            streamStarted = true;
+            
+            statusText.innerHTML = '<div class="success">Starting stream...</div>';
+            
+            // Set video source to streaming endpoint
+            video.src = `/stream_torrent/${infoHash}`;
+            video.style.display = 'block';
+            
+            // Set default playback speed
+            video.playbackRate = 3.0;
+            
+            video.addEventListener('loadstart', () => {
+                statusText.innerHTML = '<div class="success">Stream loading...</div>';
+            });
+            
+            video.addEventListener('canplay', () => {
+                statusDiv.style.display = 'none';
+                controls.style.display = 'block';
+                video.play().catch(e => console.log('Autoplay prevented'));
+            });
+            
+            video.addEventListener('error', (e) => {
+                console.error('Video error:', e);
+                statusDiv.style.display = 'block';
+                statusText.innerHTML = `
+                    <div class="error">Streaming error</div>
+                    <p>Unable to stream video. This could be due to:</p>
+                    <ul style="font-size: 12px;">
+                        <li>Insufficient download progress</li>
+                        <li>Network connectivity issues</li>
+                        <li>Unsupported video format</li>
+                    </ul>
+                    <button class="btn" onclick="retryStream('${infoHash}')">Retry Stream</button>
+                    <button class="btn" onclick="window.history.back()">Go Back</button>
+                `;
+            });
+            
+            setupControls();
+        }
+        
+        function setupControls() {
+            document.getElementById('play-btn').addEventListener('click', () => {
+                video.play();
+            });
+            
+            document.getElementById('pause-btn').addEventListener('click', () => {
+                video.pause();
+            });
+            
+            document.getElementById('speed-select').addEventListener('change', (e) => {
+                video.playbackRate = parseFloat(e.target.value);
+            });
+            
+            document.getElementById('fullscreen-btn').addEventListener('click', () => {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen();
+                }
+            });
+        }
+        
+        function retryStream(infoHash) {
+            streamStarted = false;
+            video.src = '';
+            attemptStreaming(infoHash);
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+        });
+    </script>
+</body>
+</html>

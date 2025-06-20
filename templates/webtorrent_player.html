@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniFlix Torrent Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        
+        #video-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            background: #000;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        
+        #watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .control-btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 0 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .control-btn:hover {
+            background: #ff5252;
+        }
+        
+        #progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        
+        #progress-fill {
+            height: 100%;
+            background: #ff6b6b;
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        .error {
+            color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .success {
+            color: #4caf50;
+            background: rgba(76, 175, 80, 0.1);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <div id="watermark">AniFlix</div>
+        
+        <div id="status">
+            <div id="status-text">Initializing...</div>
+            <div id="download-progress"></div>
+            <div id="peers-info"></div>
+        </div>
+        
+        <video id="video" controls style="display: none;"></video>
+        
+        <div id="controls">
+            <button class="control-btn" id="play-btn">Play</button>
+            <button class="control-btn" id="pause-btn">Pause</button>
+            <button class="control-btn" id="fullscreen-btn">Fullscreen</button>
+            <select class="control-btn" id="speed-select">
+                <option value="0.5">0.5x</option>
+                <option value="1">1x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+                <option value="3" selected>3x</option>
+            </select>
+            <div id="progress-bar">
+                <div id="progress-fill"></div>
+            </div>
+            <div id="time-display">00:00 / 00:00</div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status-text');
+        const downloadProgress = document.getElementById('download-progress');
+        const peersInfo = document.getElementById('peers-info');
+        const controls = document.getElementById('controls');
+        const playBtn = document.getElementById('play-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const speedSelect = document.getElementById('speed-select');
+        const progressBar = document.getElementById('progress-bar');
+        const progressFill = document.getElementById('progress-fill');
+        const timeDisplay = document.getElementById('time-display');
+        
+        // Get magnet link from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const magnetURI = urlParams.get('url');
+        const title = urlParams.get('title') || 'Unknown';
+        
+        if (!magnetURI) {
+            statusText.innerHTML = '<div class="error">No magnet link provided</div>';
+        } else {
+            startTorrent(magnetURI);
+        }
+        
+        function startTorrent(magnetURI) {
+            statusText.textContent = 'Initializing WebTorrent...';
+            
+            // Add debug logging
+            console.log('Starting torrent with magnet URI:', magnetURI);
+            
+            try {
+                // Create WebTorrent client with more permissive settings
+                const client = new WebTorrent({
+                    tracker: {
+                        announce: [
+                            'wss://tracker.btorrent.xyz',
+                            'wss://tracker.openwebtorrent.com',
+                            'wss://tracker.webtorrent.io'
+                        ]
+                    }
+                });
+                
+                console.log('WebTorrent client created');
+                statusText.textContent = 'Connecting to torrent network...';
+                
+                // Set aggressive timeout
+                const connectionTimeout = setTimeout(() => {
+                    statusText.innerHTML = `
+                        <div class="error">Unable to connect to torrent network</div>
+                        <div>This might be due to:</div>
+                        <div>• No available seeders</div>
+                        <div>• Network restrictions</div>
+                        <div>• Firewall blocking WebRTC</div>
+                        <button class="control-btn" onclick="fallbackToDemo()">Try Demo Video Instead</button>
+                    `;
+                }, 15000);
+                
+                // Add torrent with error handling
+                client.add(magnetURI, {
+                    announce: [
+                        'http://nyaa.tracker.wf:7777/announce',
+                        'udp://open.stealth.si:80/announce',
+                        'udp://tracker.opentrackr.org:1337/announce',
+                        'udp://exodus.desync.com:6969/announce',
+                        'udp://tracker.torrent.eu.org:451/announce'
+                    ]
+                }, function (torrent) {
+                    clearTimeout(connectionTimeout);
+                    
+                    console.log('Torrent loaded successfully:', torrent.name);
+                    statusText.innerHTML = `
+                        <div class="success">Connected to: ${torrent.name}</div>
+                        <div>Files: ${torrent.files.length} | Size: ${(torrent.length / 1024 / 1024).toFixed(2)} MB</div>
+                    `;
+                    
+                    // Find video file
+                    const videoFile = torrent.files.find(file => {
+                        const name = file.name.toLowerCase();
+                        return name.includes('.mp4') || name.includes('.mkv') || 
+                               name.includes('.avi') || name.includes('.webm') ||
+                               name.includes('.mov') || name.includes('.m4v');
+                    });
+                    
+                    if (!videoFile) {
+                        // Use largest file as fallback
+                        const largestFile = torrent.files.reduce((a, b) => a.length > b.length ? a : b);
+                        statusText.innerHTML = `
+                            <div class="success">Using largest file: ${largestFile.name}</div>
+                            <div>Size: ${(largestFile.length / 1024 / 1024).toFixed(2)} MB</div>
+                        `;
+                        setupVideoStreaming(largestFile, torrent);
+                    } else {
+                        statusText.innerHTML = `
+                            <div class="success">Video file found: ${videoFile.name}</div>
+                            <div>Size: ${(videoFile.length / 1024 / 1024).toFixed(2)} MB</div>
+                        `;
+                        setupVideoStreaming(videoFile, torrent);
+                    }
+                });
+                
+                // Handle client errors
+                client.on('error', function (err) {
+                    clearTimeout(connectionTimeout);
+                    console.error('WebTorrent client error:', err);
+                    statusText.innerHTML = `
+                        <div class="error">Connection failed: ${err.message}</div>
+                        <button class="control-btn" onclick="fallbackToDemo()">Try Demo Video</button>
+                    `;
+                });
+                
+            } catch (error) {
+                console.error('Failed to initialize WebTorrent:', error);
+                statusText.innerHTML = `
+                    <div class="error">WebTorrent initialization failed</div>
+                    <div>${error.message}</div>
+                    <button class="control-btn" onclick="fallbackToDemo()">Try Demo Video</button>
+                `;
+            }
+        }
+        
+        function setupVideoStreaming(file, torrent) {
+            // Use appendTo for better compatibility
+            file.appendTo(video);
+            
+            // Show video and controls
+            video.style.display = 'block';
+            controls.style.display = 'block';
+            
+            // Set up event listeners
+            video.addEventListener('loadstart', function() {
+                statusText.innerHTML = '<div class="success">Stream starting...</div>';
+            });
+            
+            video.addEventListener('canplay', function() {
+                statusText.innerHTML = '<div class="success">Video ready to play!</div>';
+                video.playbackRate = 3.0;
+                video.play().catch(e => console.log('Autoplay prevented'));
+            });
+            
+            video.addEventListener('error', function(e) {
+                console.error('Video error:', e);
+                statusText.innerHTML = '<div class="error">Video playback error</div>';
+            });
+            
+            // Update download progress
+            const progressInterval = setInterval(() => {
+                if (torrent) {
+                    const progress = Math.round(torrent.progress * 100);
+                    const downloadSpeed = (torrent.downloadSpeed / 1024 / 1024).toFixed(2);
+                    const peers = torrent.numPeers;
+                    
+                    downloadProgress.textContent = `Download: ${progress}% | Speed: ${downloadSpeed} MB/s`;
+                    peersInfo.textContent = `Peers: ${peers} connected`;
+                }
+            }, 1000);
+            
+            // Setup video controls
+            setupControls();
+            
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', () => {
+                clearInterval(progressInterval);
+                if (torrent) {
+                    torrent.destroy();
+                }
+            });
+        }
+        
+        function fallbackToDemo() {
+            statusText.innerHTML = '<div class="success">Loading demo video...</div>';
+            video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+            video.style.display = 'block';
+            controls.style.display = 'block';
+            video.playbackRate = 3.0;
+            video.play();
+            setupControls();
+        }
+        
+        function setupControls() {
+            playBtn.addEventListener('click', () => {
+                video.play();
+            });
+            
+            pauseBtn.addEventListener('click', () => {
+                video.pause();
+            });
+            
+            fullscreenBtn.addEventListener('click', () => {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen();
+                }
+            });
+            
+            speedSelect.addEventListener('change', (e) => {
+                video.playbackRate = parseFloat(e.target.value);
+            });
+            
+            progressBar.addEventListener('click', (e) => {
+                const rect = progressBar.getBoundingClientRect();
+                const percent = (e.clientX - rect.left) / rect.width;
+                video.currentTime = percent * video.duration;
+            });
+            
+            video.addEventListener('timeupdate', () => {
+                if (video.duration) {
+                    const percent = (video.currentTime / video.duration) * 100;
+                    progressFill.style.width = percent + '%';
+                    
+                    const current = formatTime(video.currentTime);
+                    const total = formatTime(video.duration);
+                    timeDisplay.textContent = `${current} / ${total}`;
+                }
+            });
+        }
+        
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+    </script>
+</body>
+</html>

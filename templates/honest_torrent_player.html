@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniFlix Torrent Information</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 600px;
+            text-align: center;
+        }
+        
+        .torrent-title {
+            color: #4caf50;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        
+        .torrent-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .info-row {
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .label {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+        
+        .value {
+            color: #fff;
+            word-break: break-all;
+        }
+        
+        .limitation-box {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .limitation-title {
+            color: #ffc107;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .btn:hover {
+            background: #ff5252;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .magnet-link {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="watermark">AniFlix</div>
+        
+        <div class="info-box">
+            <div class="torrent-title" id="torrent-title">Torrent Information</div>
+            
+            <div class="torrent-info" id="torrent-info">
+                <div id="info-content">Loading torrent information...</div>
+            </div>
+            
+            <div class="limitation-box">
+                <div class="limitation-title">Streaming Limitation</div>
+                <p>AniFlix currently supports direct video streaming but requires a full BitTorrent client implementation for torrent streaming. Browser-based torrent streaming has significant limitations due to:</p>
+                <ul style="text-align: left; font-size: 14px;">
+                    <li>WebRTC connection restrictions</li>
+                    <li>Firewall and NAT traversal issues</li>
+                    <li>Limited tracker protocol support</li>
+                    <li>Browser security restrictions</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 30px;">
+                <button class="btn" onclick="copyMagnetLink()">Copy Magnet Link</button>
+                <button class="btn btn-secondary" onclick="downloadWithClient()">Open in Torrent Client</button>
+                <button class="btn btn-secondary" onclick="watchDemo()">Watch Demo Video</button>
+                <button class="btn btn-secondary" onclick="goBack()">Go Back</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get magnet URI from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const magnetURI = urlParams.get('url');
+        const title = urlParams.get('title') || 'Unknown';
+        
+        let torrentInfo = null;
+        
+        if (!magnetURI) {
+            document.getElementById('info-content').innerHTML = '<div style="color: #ff6b6b;">No magnet link provided</div>';
+        } else {
+            loadTorrentInfo();
+        }
+        
+        async function loadTorrentInfo() {
+            try {
+                const response = await fetch(`/torrent_info?magnet=${encodeURIComponent(magnetURI)}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    torrentInfo = data.info;
+                    displayTorrentInfo(data.info);
+                } else {
+                    document.getElementById('info-content').innerHTML = `<div style="color: #ff6b6b;">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('info-content').innerHTML = `<div style="color: #ff6b6b;">Connection error: ${error.message}</div>`;
+            }
+        }
+        
+        function displayTorrentInfo(info) {
+            document.getElementById('torrent-title').textContent = info.name;
+            
+            const infoContent = document.getElementById('info-content');
+            infoContent.innerHTML = `
+                <div class="info-row">
+                    <span class="label">Name:</span>
+                    <span class="value">${info.name}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Info Hash:</span>
+                    <span class="value">${info.info_hash}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Trackers:</span>
+                    <span class="value">${info.trackers.length} tracker(s)</span>
+                </div>
+                <div class="magnet-link">
+                    <strong>Magnet Link:</strong><br>
+                    ${magnetURI}
+                </div>
+            `;
+        }
+        
+        function copyMagnetLink() {
+            navigator.clipboard.writeText(magnetURI).then(() => {
+                alert('Magnet link copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = magnetURI;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Magnet link copied to clipboard!');
+            });
+        }
+        
+        function downloadWithClient() {
+            // Try to open magnet link in system torrent client
+            window.location.href = magnetURI;
+        }
+        
+        function watchDemo() {
+            window.location.href = '/player?url=https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4&title=Demo Video';
+        }
+        
+        function goBack() {
+            window.history.back();
+        }
+    </script>
+</body>
+</html>

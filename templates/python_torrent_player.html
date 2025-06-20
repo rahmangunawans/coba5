@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniFlix Player</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        
+        .status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 400px;
+            z-index: 1000;
+        }
+        
+        .watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        
+        .error { color: #ff6b6b; }
+        .success { color: #4caf50; }
+        .warning { color: #ffc107; }
+        
+        .btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background: #ff5252;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .control-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="watermark">AniFlix</div>
+        
+        <div class="status" id="status">
+            <div id="status-text">Initializing torrent stream...</div>
+        </div>
+        
+        <video id="video" controls style="display: none;"></video>
+        
+        <div class="controls" id="controls">
+            <div class="control-buttons">
+                <button class="btn" id="play-btn">Play</button>
+                <button class="btn" id="pause-btn">Pause</button>
+                <select class="btn" id="speed-select">
+                    <option value="0.5">0.5x</option>
+                    <option value="1">1x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                    <option value="3" selected>3x</option>
+                </select>
+                <button class="btn" id="fullscreen-btn">Fullscreen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status-text');
+        const statusDiv = document.getElementById('status');
+        const controls = document.getElementById('controls');
+        const playBtn = document.getElementById('play-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const speedSelect = document.getElementById('speed-select');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        
+        // Get magnet URI from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const magnetURI = urlParams.get('url');
+        const title = urlParams.get('title') || 'Unknown';
+        
+        if (!magnetURI) {
+            statusText.innerHTML = '<div class="error">No magnet link provided</div>';
+        } else {
+            initializeTorrentStream();
+        }
+        
+        async function initializeTorrentStream() {
+            statusText.innerHTML = 'Processing magnet link...';
+            
+            try {
+                // Call backend to process torrent
+                const response = await fetch(`/torrent_info?magnet=${encodeURIComponent(magnetURI)}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    statusText.innerHTML = `<div class="success">Torrent processed: ${data.info.name}</div>`;
+                    
+                    // Set video source to backend stream
+                    const streamUrl = data.stream_url;
+                    video.src = streamUrl;
+                    
+                    // Show video and controls
+                    video.style.display = 'block';
+                    controls.style.display = 'block';
+                    statusDiv.style.display = 'none';
+                    
+                    // Set default playback speed
+                    video.playbackRate = 3.0;
+                    
+                    // Setup event listeners
+                    video.addEventListener('loadstart', () => {
+                        console.log('Video loading started');
+                    });
+                    
+                    video.addEventListener('canplay', () => {
+                        console.log('Video can play');
+                        video.play().catch(e => console.log('Autoplay prevented'));
+                    });
+                    
+                    video.addEventListener('error', (e) => {
+                        console.error('Video error:', e);
+                        statusDiv.style.display = 'block';
+                        statusText.innerHTML = `
+                            <div class="error">Video playback error</div>
+                            <p>Unable to stream this torrent. This could be due to:</p>
+                            <ul style="font-size: 12px;">
+                                <li>No available seeders</li>
+                                <li>Network connectivity issues</li>
+                                <li>Unsupported video format</li>
+                            </ul>
+                            <button class="btn" onclick="tryDemo()">Watch Demo Video</button>
+                            <button class="btn" onclick="window.history.back()">Go Back</button>
+                        `;
+                    });
+                    
+                    setupControls();
+                    
+                } else {
+                    statusText.innerHTML = `
+                        <div class="error">Failed to process torrent</div>
+                        <p>${data.error || 'Unknown error occurred'}</p>
+                        <button class="btn" onclick="tryDemo()">Watch Demo Video</button>
+                        <button class="btn" onclick="window.history.back()">Go Back</button>
+                    `;
+                }
+                
+            } catch (error) {
+                console.error('Torrent processing error:', error);
+                statusText.innerHTML = `
+                    <div class="error">Connection error</div>
+                    <p>Unable to connect to torrent service</p>
+                    <button class="btn" onclick="tryDemo()">Watch Demo Video</button>
+                    <button class="btn" onclick="window.history.back()">Go Back</button>
+                `;
+            }
+        }
+        
+        function setupControls() {
+            playBtn.addEventListener('click', () => {
+                video.play();
+            });
+            
+            pauseBtn.addEventListener('click', () => {
+                video.pause();
+            });
+            
+            speedSelect.addEventListener('change', (e) => {
+                video.playbackRate = parseFloat(e.target.value);
+            });
+            
+            fullscreenBtn.addEventListener('click', () => {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen();
+                }
+            });
+        }
+        
+        function tryDemo() {
+            statusDiv.style.display = 'none';
+            video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+            video.style.display = 'block';
+            controls.style.display = 'block';
+            video.playbackRate = 3.0;
+            video.play();
+            setupControls();
+        }
+    </script>
+</body>
+</html>
